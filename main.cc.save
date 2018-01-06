@@ -1,0 +1,151 @@
+/*
+ *Клиент.
+ *Шлет нумерованный поток udp пакетов на loopback интерфейс, умеет пропускать пакеты по нажатию клавиши d
+ *
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/time.h>
+#include <cstdio>
+#include <curses.h>
+
+
+#define MAXPAYLOAD 1024
+#define PAYLOADSIZE 128 //1500 - 14 - 20 - 8 = 1458 (max)
+
+char payloadPkt[] = "1";
+char buf[1024];
+    int max = 0;
+    int successPkg = 0;
+    int totalPkg = 0;
+    int pktdrop = 0;
+    int numfailchecksum = 0;
+    int plen = 128;
+    double bw = 3000.0;
+
+    int keyscan(){
+	int ch;
+        ch = getch();
+	//key d (drop)
+	if (ch == 100) {
+	pktdrop++;
+	}
+	return ch;
+
+}
+
+int main(void)
+{
+    WINDOW *w = initscr();
+    noecho();
+    cbreak();
+    nodelay(w, TRUE);
+    //cbreak();
+  //декларируем и инициализируем переменные
+    int sock;
+    int ch;
+    int num = 1; //нумерация пакетов
+    ssize_t bytes_sent;
+    struct sockaddr_in addr;
+    struct timeval tim;
+    void *buf = NULL;
+
+    typedef struct {
+    uint32_t seq;
+    uint64_t tsctx;
+    uint64_t tscrx;
+    char payload[PAYLOADSIZE];
+    }__attribute__((packed)) udpdata_t;
+
+    //TODO не исп
+    unsigned long long rdtsc();
+    int bufsz = sizeof(udpdata_t);
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(3425); //none priv port
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+
+    //create socket, return fd num
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if(sock < 0)
+    {
+        perror("can not create socket");
+        return 1;
+    }
+
+    //abstract connect, for use send
+    if(connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        perror("failed connect to server");
+        return 2;
+    }
+
+    // Allocate sending buffer
+   if ((buf = malloc(bufsz)) == NULL){
+   perror("malloc");
+   }
+
+    //цикл для отправки пакетов
+    for (;;) {
+        gettimeofday(&tim, NULL);
+        double time_stamp=tim.tv_sec+(tim.tv_usec/1000000.0);
+        //заполняем структуру udp пакета
+        ((udpdata_t *)buf)->seq = num;
+        ((udpdata_t *)buf)->tsctx = time_stamp;
+        strcpy(((udpdata_t *)buf)->payload,"simpled payload line"); //для упрощения передаем в payload константную строку
+	if (keyscan() == 100) goto drop; //при нажатии клавиши пропускаем отсылку 
+        bytes_sent = send(sock, buf, bufsz, 0);
+drop:
+	//послушаем, не хотят ли нам чего сказать 
+        bytesize = recvfrom(sock, buf, bufsz, 0,&from, &len);
+        if (bytesize < 0){
+            perror("recvfrom");
+            goto err;
+        } else
+        if (bytesize != bufsz){
+            fprintf(stdout, "Received unknown packet.\n");
+            goto err;
+        } else
+        if (bytesize == bufsz) {
+	//тут нужно получить из пакета номер перезапрашиваемого пакета и его отправить
+	bytes_sent = send(sock, buf, bufsz, 0);
+	}
+
+        //задержка, формирует скорость потока
+        int interval = (int) (1000000.0 * plen / bw); usleep(interval);
+        if (bytes_sent < 0) {
+          perror("Error sending packet.\n");
+          close(sock);
+          return 5;
+
+        } else {
+        num++;
+        printw("SENDING PACKET SEQ#[%d] LENGTH [%d] BYTES BANDWIDTH [%f] BYTES/SEC LENGTH [%d] PACKET DROP [%d]\r",
+        num, plen, bw,bytes_sent,pktdrop);
+        refresh();
+  }
+
+}
+
+    return 0;
+}
+
+
+void pint_drop(){
+  int drop = max - successPkg - numfailchecksum;
+  printf("PERCENT DROP: %d/%d = %.2f %%\n", drop, max, 100.0 * drop / max);
+}
+
+void dropPacket(){
+
+}
+
