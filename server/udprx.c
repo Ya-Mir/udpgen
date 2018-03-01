@@ -238,10 +238,10 @@ int main() {
         //gettimeofday(&tim, NULL);
         //double time_stamp=tim.tv_sec+(tim.tv_usec/1000000.0);
         //заполняем структуру для udp пакета
-        ((udpdata_t *)buftx)->seq = datarx[i].seq;
+        ((datatx_t *)buftx)->seq = datarx[i].seq;
         //((udpdata_t *)buftx)->tsctx = time_stamp;
 
-        sendto(sock,buftx,strlen(buftx),0,&from,len);
+            sendto(sock,buftx,sizeof(datatx_t),0,&from,len);
 
 
 		}

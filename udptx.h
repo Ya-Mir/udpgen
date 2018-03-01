@@ -34,7 +34,8 @@ typedef struct  {
 typedef struct {
     char message;
     uint64_t seq; // номер пакета, который будет перезапрошен
-}__attribute__((packed)) udpretransmission_t;
+    char payload[PAYLOADSIZE];
+} udpretransmission_t;
 
 unsigned long long rdtsc();
 

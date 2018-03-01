@@ -2,6 +2,6 @@ TEMPLATE = app
 CONFIG += console
 CONFIG -= qt
 
-SOURCES += main.c \
+SOURCES += \
     udprx.c
 

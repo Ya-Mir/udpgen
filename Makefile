@@ -187,7 +187,7 @@ compiler_clean:
 
 ####### Compile
 
-main.o: main.c udp.h
+main.o: main.c udptx.h
 	$(CC) -c $(CFLAGS) $(INCPATH) -o main.o main.c
 
 ####### Install
