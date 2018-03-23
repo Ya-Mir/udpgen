@@ -44,7 +44,7 @@ typedef struct {
 
 
 udpretransmission_t *udpdata;
-int rate = 2; //Mbps
+int rate = 2; //Mbps - Скорость потока по-умолчанию
 int       npkts = 1024; //размер буфера под пакеты
 char payloadPkt[] = "1";
     int max = 0;
@@ -53,7 +53,6 @@ char payloadPkt[] = "1";
     int pktdrop = 0;
     int numfailchecksum = 0;
     int plen = 128;
-    double bw = 20000000.0; //byte*s
     void *buf  = NULL;
     void *bufx  = NULL;
 
@@ -105,13 +104,11 @@ int main(void)
     unsigned int len = sizeof(from);
     void               *bufrx  = NULL;
 
-    int err;
     unsigned long long rdtsc();
     size_t bufsz = sizeof(udpdata_t);
     size_t bufsztx = sizeof(datatx);
     int bufszrx = sizeof(udpretransmission_t);
     int bytesize = 0;
-    udpdata_t *udpdatatx;
     addr.sin_family = AF_INET;
     addr.sin_port = htons(3425); //none priv port
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -231,9 +228,10 @@ int main(void)
             ((datatx *)bufx)->tsctx = rdtsc();
             strcpy(((datatx *)bufx)->payload,"simpled payload line"); //для упрощения передаем в payload константную строку
 
+            //при нажатии клавиши d пропускаем отсылку, имитируем потерю пакета
             if (keyscan() == 'd') {
                 num++;
-                continue; //при нажатии клавиши пропускаем отсылку, имитируем потерю пакета
+                continue;
             }
 
             bytes_sent = send(sock, bufx, bufsztx, 0);

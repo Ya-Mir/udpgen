@@ -241,7 +241,7 @@ int main() {
                 recv_pkt++;
                 pktCount = i;
                 memcpy(&datarx[i], bufrx, sizeof(udpdata_t));
-                datarx[i].tscrx = rdtsc();
+                datarx[i].tscrx = rdtsc(); // ставим временную метку в пакет
                 timer_reset();
 
                 //обнулим флаг конца буфера
