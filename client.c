@@ -18,7 +18,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <curses.h>
-#include "udptx.h"
+#include "client.h"
 #include <sys/fcntl.h>
 #include <sys/select.h>
 
