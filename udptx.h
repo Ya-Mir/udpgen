@@ -21,8 +21,8 @@
 
 #include <stdint.h>
 
-#define UDPPORT 3425
-#define PAYLOADSIZE 128
+#define UDPPORT 3425  //используем не привилегированный порт
+#define PAYLOADSIZE 128 //размер полезной нагрузки
 
 typedef struct  {
     uint32_t seq;
@@ -40,3 +40,10 @@ typedef struct {
 unsigned long long rdtsc();
 
 unsigned long long get_hz();
+
+__inline__ unsigned long long rdtsc(void)
+{
+    unsigned hi, lo;
+    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ( (unsigned long long)lo)|( ((unsigned long long)hi)<<32 );
+}

@@ -1,8 +1,9 @@
 /*
- *Клиент.
- *Посылает нумерованный поток udp пакетов на loopback интерфейс,
- *умеет пропускать пакеты по нажатию клавиши d
- * TODO bw не пропорционально влияет на кол-во трафика
+ * Клиент.
+ * Посылает нумерованный поток udp пакетов на loopback интерфейс,
+ * умеет пропускать пакеты по нажатию клавиш.
+ * d - 1 пакет, f - 4 пакета
+ *
  *
  */
 
@@ -22,17 +23,10 @@
 #include <sys/select.h>
 
 
-#define MAXPAYLOAD 1024
+
 #define Mbps(bytes, usec) ((bytes) * 8. / (usec))
 
 
-//#define SA      struct sockaddr
-__inline__ unsigned long long rdtsc(void)
-{
-    unsigned hi, lo;
-    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
-    return ( (unsigned long long)lo)|( ((unsigned long long)hi)<<32 );
-}
 
 typedef struct {
     uint32_t seq;
@@ -43,31 +37,46 @@ typedef struct {
 
 
 
-udpretransmission_t *udpdata;
-int rate = 2; //Mbps
+udpretransmission_t *udpdata; //структура для пакета перазапроса
+int rate = 2; //Mbps - Скорость потока по-умолчанию
 int       npkts = 1024; //размер буфера под пакеты
-char payloadPkt[] = "1";
-    int max = 0;
-    int successPkg = 0;
-    int totalPkg = 0;
-    int pktdrop = 0;
-    int numfailchecksum = 0;
-    int plen = 128;
-    double bw = 20000000.0; //byte*s
-    void *buf  = NULL;
-    void *bufx  = NULL;
+int pktdrop = 0; // кол-во потеряных пакетов
+    void *bufrx  = NULL; //буфер для приема
+    void *buftx  = NULL; //буфер для передачи
+int enable_debug = 0;
 
-
-
+//обработчик нажатия клавиш
 char keyscan(){
 	int ch;
         ch = getch();
-    //logic for key d (drop)
+    //клавиша d(D) - потеря пакета
     if (ch == 100 || ch == 68 ) {
     pktdrop++;
 	}
+
+    if (ch == 102 ) {
+    pktdrop += 4;
+    }
+    // клавиши 1 .. 9 - смена скорости
     if ( ch > 48 && ch < 58){
     rate = ch - '0';
+    }
+    //клавиша e - дебаг
+    if (ch == 101 ||ch == 69 ) {
+
+        if(enable_debug){
+                mvprintw(4,0,"'e' - enable debug");
+                enable_debug=!enable_debug;
+                move (10,0);
+                clrtoeol();
+        } else {
+            move (4,0);
+            clrtoeol();
+            move (10,0);
+            clrtoeol();
+            mvprintw(4,0,"'e' - disable debug");
+            enable_debug=!enable_debug;
+        }
     }
 
 	return ch;
@@ -75,7 +84,7 @@ char keyscan(){
 
 int main(void)
 {
-    //------ncurses init----------------------
+    //инициализация библиотеки ncurses
     WINDOW *w = initscr();
     noecho();
     cbreak();
@@ -86,13 +95,13 @@ int main(void)
             exit(1);
     }
     start_color();
-    // -------------end ncurses---------------
-
-
-    double throughput = 0;
+    init_pair (1, COLOR_RED, COLOR_BLACK);
+    init_pair (2, COLOR_WHITE, COLOR_BLACK);
+    //конец ncurses
+    double throughput = -1; //скорость генерации пакетов
     int sock;
-    uint64_t num = 0; //нумерация посланных пакетов
     int numrx = 1;
+    uint32_t num = 0; //нумерация посланных пакетов
     ssize_t bytes_sent;
     unsigned long long usec_diff;
     unsigned long long byte_cnt = 0;
@@ -104,31 +113,30 @@ int main(void)
     struct sockaddr from;
     unsigned int len = sizeof(from);
     void               *bufrx  = NULL;
-
-    int err;
-    unsigned long long rdtsc();
     size_t bufsz = sizeof(udpdata_t);
     size_t bufsztx = sizeof(datatx);
     int bufszrx = sizeof(udpretransmission_t);
     int bytesize = 0;
-    udpdata_t *udpdatatx;
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(3425); //none priv port
+    addr.sin_port = htons(UDPPORT);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
     client_addr.sin_family = AF_INET;
     client_addr.sin_port = htons(506); //priv port, use root
     client_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-
-    struct timeval read_timeout;
+    //структура для хранения времни блока ограничения скорости
     struct timeval curr, prev;
-    read_timeout.tv_sec = 0;
-    read_timeout.tv_usec = 1000;
     timeout_select.tv_sec = 1;
     timeout_select.tv_usec = 0;
+
     //print usage
-    mvprintw(0,0,"Usage: press key 'd' for drop packet. 1,2,3.. - change speed");
-    //create socket, return fd num
+    mvprintw(0,0,"Usage: press key");
+    mvprintw(1,0,"'d' for 1 drop packet.");
+    mvprintw(2,0,"'f' for 4 drop packets.");
+    mvprintw(3,0,"1,2,3... - change speed");
+    mvprintw(4,0,"'e' - enable/disable debug");
+
+    //откроем socket
     sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if(sock < 0)
     {
@@ -136,20 +144,20 @@ int main(void)
         return 1;
     }
 
-    //abstract connect, for use send
+
    if (bind(sock,(struct sockaddr *)&client_addr,sizeof(struct sockaddr)) < 0)
      {
          perror("failed bind");
      }
 
-
+    //abstract connect, for use send
    if(connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
         perror("failed connect to server");
         return 2;
     }
 
-    // settings for select()
+    // настройка дискрипторов для неблокируемых сокетов
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(sock, &readfds);
@@ -162,17 +170,17 @@ int main(void)
     FD_ZERO(&except);
     FD_SET(sock, &except);
 
-    // Allocate receive data buffer
+    // выделим буфер под хранение пакетов перезапроса
     if ((udpdata= (udpretransmission_t *)calloc(npkts, sizeof(*udpdata))) == NULL)
 
-    // Allocate sending buffer
-      if ((buf = malloc(bufsz)) == NULL){
+    // выделим tx буфер
+      if ((bufrx = malloc(bufsz)) == NULL){
         perror("malloc tx");
         return 11;
     }
-    bufx = malloc(sizeof(datatx));
+    buftx = malloc(sizeof(datatx));
 
-    // Allocate rx buffer
+    // выделим rx буфер
    if ((bufrx = malloc(bufszrx)) == NULL){
    perror("malloc rx");
         return 12;
@@ -192,23 +200,28 @@ int main(void)
             //-------------прием--------
             bytesize = recvfrom(sock, bufrx, bufszrx, 0,&from, &len);
             if (bytesize == 0){
-                mvprintw (5,0, "ERROR: Server %s, please check it",strerror(errno));
+                //attron (COLOR_PAIR(1));
+                mvprintw (9,0, "ERROR: Server %s, please check it",strerror(errno));
             } else
             if (bytesize < 0){
-                mvprintw (5,0, "ERROR: Server %s, please check it",strerror(errno));
+                attron (COLOR_PAIR(1));
+                mvprintw (9,0, "ERROR: Server %s, please check it",strerror(errno));
                 refresh();
+                attroff (COLOR_PAIR(1));
+
                 //goto err;
             } else
             if (bytesize != bufszrx){
-                 mvprintw (5,0, "WARNING: Server %s, please check it",strerror(errno));
+                 mvprintw (9,0, "WARNING: Server %s, please check it",strerror(errno));
                 //goto err;
             } else
             if (bytesize == bufszrx) {
-            //парсим какой пакет, нужно перепослать
+                mvprintw (9,0, "");
+                //парсим какой пакет, нужно перепослать
                 memcpy(&udpdata[numrx], bufrx, sizeof(udpretransmission_t));
-                mvprintw (6,0, "DEBUG: Server request resend packet %d",udpdata[numrx].seq);
+                enable_debug ? mvprintw (10,0, "DEBUG: Server request resend packet %d",udpdata[numrx].seq):0;
                 numrx++;
-                if (numrx > 1024) numrx=1;
+                if (numrx > npkts) numrx=1;
               }          
           }  //-------конец приема
 
@@ -222,39 +235,42 @@ int main(void)
         continue;
 
         if (FD_ISSET(sock, &writefds)) {
-
-
-
             gettimeofday(&tim, NULL);
             //заполняем структуру для udp пакета
-            ((datatx*)bufx)->seq = num;
-            ((datatx *)bufx)->tsctx = rdtsc();
-            strcpy(((datatx *)bufx)->payload,"simpled payload line"); //для упрощения передаем в payload константную строку
-
-            if (keyscan() == 'd') {
+            //при нажатии клавиши d пропускаем отсылку, имитируем потерю пакета
+            char key = keyscan();
+            if ( key == 'd') {
                 num++;
-                continue; //при нажатии клавиши пропускаем отсылку, имитируем потерю пакета
+             //   continue;
             }
+            else if (key == 'f') {
+                num += 4;
+            }
+            ((datatx*)buftx)->seq = num;
+            ((datatx *)buftx)->tsctx = rdtsc();
+            //для упрощения передаем в payload константную строку
+            strcpy(((datatx *)buftx)->payload,"simpled payload line");
 
-            bytes_sent = send(sock, bufx, bufsztx, 0);
-           //проверка на успешность отосылки пакета
+
+            bytes_sent = send(sock, buftx, bufsztx, 0);
+           //проверка на успешность отсылки пакета
             if (bytes_sent < 0) {
                 perror("Error sending packet.\n");
                 close(sock);
                 return 5;
             } else {
                 byte_cnt += bytes_sent;
-
+                //считаем скорость отправки пакетов
                 if (curr.tv_sec > prev.tv_sec) {
                 throughput = Mbps(byte_cnt, usec_diff);
-                mvprintw(2,0,"BANDWIDTH: %.2f Mbit/s ",throughput);
+                mvprintw(5,0,"BANDWIDTH: %.2f Mbit/s ",throughput);
                 prev = curr;
                 byte_cnt = 0;
                 }
 
                 num++;
-                mvprintw(1,0,"SENDING PACKET SEQ:%d", num);
-                mvprintw(3,0,"PACKET DROP: %d", pktdrop);
+                mvprintw(6,0,"SENDING PACKET SEQ:%d", num);
+                mvprintw(7,0,"PACKET DROP: %d", pktdrop);
                 refresh();
         }
    }
